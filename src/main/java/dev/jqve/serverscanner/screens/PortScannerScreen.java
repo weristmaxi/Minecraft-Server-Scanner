@@ -330,7 +330,8 @@ public class PortScannerScreen extends Screen {
 
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-        this.renderBackground(context, mouseX, mouseY, delta);
+        // Use a manual gradient background to bypass repeated blur calls on newer Minecraft versions.
+        context.fillGradient(0, 0, this.width, this.height, 0xB0000000, 0xB0000000);
         super.render(context, mouseX, mouseY, delta);
 
         // Draw title

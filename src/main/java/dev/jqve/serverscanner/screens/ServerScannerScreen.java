@@ -401,7 +401,8 @@ public class ServerScannerScreen extends Screen {
 
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-        this.renderBackground(context, mouseX, mouseY, delta);
+        // Avoid invoking the vanilla blur twice in one frame on newer clients by using a lightweight gradient background.
+        context.fillGradient(0, 0, this.width, this.height, 0xB0000000, 0xB0000000);
         super.render(context, mouseX, mouseY, delta);
 
         // Draw title
