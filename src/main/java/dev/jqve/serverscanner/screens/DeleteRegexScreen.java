@@ -1,42 +1,47 @@
 package dev.jqve.serverscanner.screens;
 
 import dev.jqve.serverscanner.mixin.MultiplayerScreenInvoker;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.gui.screen.multiplayer.MultiplayerScreen;
-import net.minecraft.client.gui.widget.ButtonWidget;
-import net.minecraft.client.gui.widget.TextFieldWidget;
-import net.minecraft.client.option.ServerList;
-import net.minecraft.text.Text;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.gui.screens.multiplayer.JoinMultiplayerScreen;
+import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.multiplayer.ServerList;
+import net.minecraft.network.chat.Component;
 
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
 public class DeleteRegexScreen extends Screen {
     private final Screen parentScreen;
-    private TextFieldWidget regexTextField;
+    private EditBox regexTextField;
 
     public DeleteRegexScreen(Screen parentScreen) {
-        super(Text.of("Delete Regex Screen"));
+        super(Component.literal("Delete Regex Screen"));
         this.parentScreen = parentScreen;
+    }
+
+    @Override
+    public void onClose() {
+        minecraft.setScreenAndShow(parentScreen);
     }
 
     @Override
     protected void init() {
         // Initialize components
-        regexTextField = new TextFieldWidget(this.textRenderer, width/2-100, 60, 200, 20, Text.of(""));
-        regexTextField.setPlaceholder(Text.of(".* to delete all")); // Add placeholder text
-        addDrawableChild(regexTextField);
+        regexTextField = new EditBox(this.font, width/2-100, 60, 200, 20, Component.literal(""));
+        regexTextField.setHint(Component.literal(".* to delete all")); // Add placeholder text
+        addRenderableWidget(regexTextField);
 
         // Add cancel button
-        addDrawableChild(ButtonWidget.builder(Text.of("Cancel"), b -> close())
-                .dimensions(width/2 - 100, 140, 90, 20)
+        addRenderableWidget(Button.builder(Component.literal("Cancel"), b -> onClose())
+                .bounds(width/2 - 100, 140, 90, 20)
                 .build());
 
-        addDrawableChild(ButtonWidget.builder(Text.of("Delete"), b -> {
-            String regex = regexTextField.getText();
+        addRenderableWidget(Button.builder(Component.literal("Delete"), b -> {
+            String regex = regexTextField.getValue();
             deleteServers(regex);})
-                .dimensions(width/2 + 10, 140, 90, 20)
+                .bounds(width/2 + 10, 140, 90, 20)
                 .build());
     }
 
@@ -44,22 +49,22 @@ public class DeleteRegexScreen extends Screen {
         try {
             Pattern.compile(regex);
         } catch (PatternSyntaxException e) {
-            this.regexTextField.setText("Invalid regex");
+            this.regexTextField.setValue("Invalid regex");
             return;
         }
-        MinecraftClient client = MinecraftClient.getInstance();
-        ServerList serverList = ((MultiplayerScreen) parentScreen).getServerList();
-        serverList.loadFile();
+        Minecraft client = Minecraft.getInstance();
+        ServerList serverList = ((JoinMultiplayerScreen) parentScreen).getServers();
+        serverList.load();
         for (int i = 0; i < serverList.size(); i++) {
             if (serverList.get(i).name != null && serverList.get(i).name.matches(regex)) {
                 serverList.remove(serverList.get(i));
                 i--; // Adjust index after removal
             }
         }
-        serverList.saveFile();
+        serverList.save();
         MultiplayerScreenInvoker invoker = (MultiplayerScreenInvoker) parentScreen;
         invoker.setServerList(serverList);
-        client.setScreen(new MultiplayerScreen(parentScreen));
+        invoker.invokeRefreshServerList();
     }
 
 }

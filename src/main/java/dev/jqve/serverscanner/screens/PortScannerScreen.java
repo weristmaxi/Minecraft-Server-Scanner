@@ -1,16 +1,16 @@
 package dev.jqve.serverscanner.screens;
 
 import dev.jqve.serverscanner.mixin.MultiplayerScreenInvoker;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.gui.screen.multiplayer.MultiplayerScreen;
-import net.minecraft.client.gui.tooltip.Tooltip;
-import net.minecraft.client.gui.widget.ButtonWidget;
-import net.minecraft.client.gui.widget.TextFieldWidget;
-import net.minecraft.client.network.ServerInfo;
-import net.minecraft.client.option.ServerList;
-import net.minecraft.text.Text;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.gui.screens.multiplayer.JoinMultiplayerScreen;
+import net.minecraft.client.gui.components.Tooltip;
+import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.multiplayer.ServerData;
+import net.minecraft.client.multiplayer.ServerList;
+import net.minecraft.network.chat.Component;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -24,6 +24,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 
 public class PortScannerScreen extends Screen {
+    private final Screen parent;
     private static final Logger LOGGER = LogManager.getLogger(PortScannerScreen.class);
 
     // Port scanning settings
@@ -34,17 +35,17 @@ public class PortScannerScreen extends Screen {
     );
 
     // Text fields and button references
-    private TextFieldWidget ipTextField;
-    private TextFieldWidget startPortTextField;
-    private TextFieldWidget endPortTextField;
-    private ButtonWidget scanButton;
+    private EditBox ipTextField;
+    private EditBox startPortTextField;
+    private EditBox endPortTextField;
+    private Button scanButton;
 
     // Status text to display scanning progress or errors
-    private Text statusText;
+    private Component statusText;
 
     // Collected ports and related server info
     private final List<Integer> openPorts = new ArrayList<>();
-    private final List<ServerInfo> foundServers = new ArrayList<>();
+    private final List<ServerData> foundServers = new ArrayList<>();
     private ExecutorService executorService;
     private boolean isScanning = false;
 
@@ -57,8 +58,14 @@ public class PortScannerScreen extends Screen {
     private int buttonsPerRow;
     private int dynamicButtonWidth;
 
-    public PortScannerScreen() {
-        super(Text.literal("Minecraft Server Scanner"));
+    public PortScannerScreen(Screen parent) {
+        super(Component.literal("Minecraft Server Scanner"));
+        this.parent = parent;
+    }
+
+    @Override
+    public void onClose() {
+        ((MultiplayerScreenInvoker) parent).invokeRefreshServerList();
     }
 
     @Override
@@ -67,7 +74,7 @@ public class PortScannerScreen extends Screen {
         calculateLayoutMetrics();
         initializeTextFields();
         initializeButtons();
-        statusText = Text.literal("");
+        statusText = Component.literal("");
     }
 
     /**
@@ -92,60 +99,60 @@ public class PortScannerScreen extends Screen {
 
     private void initializeTextFields() {
         // IP Address field
-        this.ipTextField = new TextFieldWidget(
-                this.textRenderer,
+        this.ipTextField = new EditBox(
+                this.font,
                 this.width / 2 - 100,
                 20,
                 200,
                 20,
-                Text.literal("IP Address")
+                Component.literal("IP Address")
         );
         this.ipTextField.setMaxLength(15);
-        this.ipTextField.setText("127.0.0.1");
+        this.ipTextField.setValue("127.0.0.1");
         // Added basic tooltip
-        this.ipTextField.setTooltip(Tooltip.of(Text.literal("Enter the IP address to scan (e.g., 127.0.0.1)")));
-        this.addDrawableChild(ipTextField);
+        this.ipTextField.setTooltip(Tooltip.create(Component.literal("Enter the IP address to scan (e.g., 127.0.0.1)")));
+        this.addRenderableWidget(ipTextField);
 
         // Start Port field
-        this.startPortTextField = new TextFieldWidget(
-                this.textRenderer,
+        this.startPortTextField = new EditBox(
+                this.font,
                 this.width / 2 - 100,
                 50,
                 90,
                 20,
-                Text.literal("Start Port")
+                Component.literal("Start Port")
         );
         this.startPortTextField.setMaxLength(5);
-        this.startPortTextField.setText("1");
+        this.startPortTextField.setValue("1");
         // Added tooltip for clarity
-        this.startPortTextField.setTooltip(Tooltip.of(Text.literal("Enter the starting port number (lowest port to scan)")));
-        this.addDrawableChild(startPortTextField);
+        this.startPortTextField.setTooltip(Tooltip.create(Component.literal("Enter the starting port number (lowest port to scan)")));
+        this.addRenderableWidget(startPortTextField);
 
         // End Port field
-        this.endPortTextField = new TextFieldWidget(
-                this.textRenderer,
+        this.endPortTextField = new EditBox(
+                this.font,
                 this.width / 2 + 10,
                 50,
                 90,
                 20,
-                Text.literal("End Port")
+                Component.literal("End Port")
         );
         this.endPortTextField.setMaxLength(5);
-        this.endPortTextField.setText("65535");
+        this.endPortTextField.setValue("65535");
         // Added tooltip for clarity
-        this.endPortTextField.setTooltip(Tooltip.of(Text.literal("Enter the ending port number (highest port to scan)")));
-        this.addDrawableChild(endPortTextField);
+        this.endPortTextField.setTooltip(Tooltip.create(Component.literal("Enter the ending port number (highest port to scan)")));
+        this.addRenderableWidget(endPortTextField);
     }
 
     private void initializeButtons() {
-        this.scanButton = ButtonWidget.builder(Text.literal("Scan Ports"), this::handleScanButton)
+        this.scanButton = Button.builder(Component.literal("Scan Ports"), this::handleScanButton)
                 .width(200)
-                .position(this.width / 2 - 100, 80)
+                .pos(this.width / 2 - 100, 80)
                 .build();
-        this.addDrawableChild(scanButton);
+        this.addRenderableWidget(scanButton);
     }
 
-    private void handleScanButton(ButtonWidget button) {
+    private void handleScanButton(Button button) {
         if (isScanning) {
             stopScanning();
         } else {
@@ -158,12 +165,12 @@ public class PortScannerScreen extends Screen {
             return;
         }
 
-        String ip = ipTextField.getText();
-        int startPort = Integer.parseInt(startPortTextField.getText());
-        int endPort = Integer.parseInt(endPortTextField.getText());
+        String ip = ipTextField.getValue();
+        int startPort = Integer.parseInt(startPortTextField.getValue());
+        int endPort = Integer.parseInt(endPortTextField.getValue());
 
         isScanning = true;
-        scanButton.setMessage(Text.literal("Stop Scanning"));
+        scanButton.setMessage(Component.literal("Stop Scanning"));
         openPorts.clear();
         foundServers.clear();
 
@@ -180,31 +187,31 @@ public class PortScannerScreen extends Screen {
             executorService = null;
         }
         isScanning = false;
-        scanButton.setMessage(Text.literal("Scan Ports"));
-        statusText = Text.literal("Scanning stopped");
+        scanButton.setMessage(Component.literal("Scan Ports"));
+        statusText = Component.literal("Scanning stopped");
     }
 
     private boolean validateInput() {
         try {
-            String ip = ipTextField.getText();
-            int startPort = Integer.parseInt(startPortTextField.getText());
-            int endPort = Integer.parseInt(endPortTextField.getText());
+            String ip = ipTextField.getValue();
+            int startPort = Integer.parseInt(startPortTextField.getValue());
+            int endPort = Integer.parseInt(endPortTextField.getValue());
 
             if (!IP_PATTERN.matcher(ip).matches()) {
-                statusText = Text.literal("§cInvalid IP address format");
+                statusText = Component.literal("§cInvalid IP address format");
                 return false;
             }
             if (startPort < 1 || startPort > 65535 || endPort < 1 || endPort > 65535) {
-                statusText = Text.literal("§cPorts must be between 1 and 65535");
+                statusText = Component.literal("§cPorts must be between 1 and 65535");
                 return false;
             }
             if (startPort > endPort) {
-                statusText = Text.literal("§cStart port must be ≤ end port");
+                statusText = Component.literal("§cStart port must be ≤ end port");
                 return false;
             }
             return true;
         } catch (NumberFormatException e) {
-            statusText = Text.literal("§cInvalid port numbers");
+            statusText = Component.literal("§cInvalid port numbers");
             return false;
         }
     }
@@ -240,26 +247,26 @@ public class PortScannerScreen extends Screen {
                 }
             }
 
-            MinecraftClient.getInstance().execute(() -> {
+            Minecraft.getInstance().execute(() -> {
                 openPorts.addAll(portQueue);
                 for (Integer p : openPorts) {
                     foundServers.add(
-                            new ServerInfo(ip + ":" + p, ip + ":" + p, ServerInfo.ServerType.LAN)
+                            new ServerData(ip + ":" + p, ip + ":" + p, ServerData.Type.LAN)
                     );
                 }
                 updateServerButtons();
                 isScanning = false;
-                scanButton.setMessage(Text.literal("Scan Ports"));
-                statusText = Text.literal("§aScanning completed! Found " + openPorts.size() + " open ports");
+                scanButton.setMessage(Component.literal("Scan Ports"));
+                statusText = Component.literal("§aScanning completed! Found " + openPorts.size() + " open ports");
             });
         }).start();
     }
 
     private void updateProgress(int processed, int total) {
         float progress = (float) processed / total * 100;
-        MinecraftClient.getInstance().execute(() -> {
+        Minecraft.getInstance().execute(() -> {
             String statusString = String.format("Scanning: %.1f%% (%d/%d)", progress, processed, total);
-            statusText = Text.literal(statusString);
+            statusText = Component.literal(statusString);
         });
     }
 
@@ -270,8 +277,8 @@ public class PortScannerScreen extends Screen {
     private void updateServerButtons() {
         // Remove old server buttons
         this.children().removeIf(child ->
-                child instanceof ButtonWidget
-                        && ((ButtonWidget) child).getMessage().getString().contains(":")
+                child instanceof Button
+                        && ((Button) child).getMessage().getString().contains(":")
         );
 
         // Nothing to do if no servers
@@ -292,7 +299,7 @@ public class PortScannerScreen extends Screen {
         int offsetX = (this.width - totalBlockWidth) / 2;
 
         for (int index = 0; index < foundServers.size(); index++) {
-            ServerInfo server = foundServers.get(index);
+            ServerData server = foundServers.get(index);
             int row = index / buttonsPerRow;
             int col = index % buttonsPerRow;
 
@@ -301,55 +308,55 @@ public class PortScannerScreen extends Screen {
             // Y-position remains the same as before, starting from RESULTS_START_Y for row 0
             int buttonY = RESULTS_START_Y + row * (BUTTON_HEIGHT + BUTTON_SPACING);
 
-            ButtonWidget button = ButtonWidget.builder(Text.literal(server.name), b -> addServerToList(server))
+            Button button = Button.builder(Component.literal(server.name), b -> addServerToList(server))
                     .width(dynamicButtonWidth)
-                    .position(buttonX, buttonY)
+                    .pos(buttonX, buttonY)
                     .build();
 
-            this.addDrawableChild(button);
+            this.addRenderableWidget(button);
         }
     }
 
-    private void addServerToList(ServerInfo server) {
-        MinecraftClient client = MinecraftClient.getInstance();
-        MultiplayerScreen multiplayerScreen = new MultiplayerScreen(this);
-        multiplayerScreen.init(client, this.width, this.height);
+    private void addServerToList(ServerData server) {
+        Minecraft client = Minecraft.getInstance();
+        JoinMultiplayerScreen multiplayerScreen = new JoinMultiplayerScreen(this);
+        multiplayerScreen.init(this.width, this.height);
 
         ServerList serverList = new ServerList(client);
-        serverList.loadFile();
+        serverList.load();
 
         MultiplayerScreenInvoker invoker = (MultiplayerScreenInvoker) multiplayerScreen;
         invoker.setServerList(serverList);
         invoker.setSelectedEntry(server);
         invoker.invokeAddEntry(true);
 
-        client.setScreen(this);
+        client.setScreenAndShow(this);
         foundServers.remove(server);
         updateServerButtons();
     }
 
     @Override
-    public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-        this.renderBackground(context, mouseX, mouseY, delta);
-        super.render(context, mouseX, mouseY, delta);
+    public void extractRenderState(GuiGraphicsExtractor context, int mouseX, int mouseY, float delta) {
+
+        super.extractRenderState(context, mouseX, mouseY, delta);
 
         // Draw title
-        context.drawTextWithShadow(
-                this.textRenderer,
+        context.text(
+                this.font,
                 this.title,
-                this.width / 2 - this.textRenderer.getWidth(this.title) / 2,
+                this.width / 2 - this.font.width(this.title) / 2,
                 5,
-                0xFFFFFF
+                0xFFFFFFFF
         );
 
         // Draw status text
         if (statusText != null) {
-            context.drawTextWithShadow(
-                    this.textRenderer,
+            context.text(
+                    this.font,
                     statusText,
-                    this.width / 2 - this.textRenderer.getWidth(statusText) / 2,
+                    this.width / 2 - this.font.width(statusText) / 2,
                     110,
-                    0xFFFFFF
+                    0xFFFFFFFF
             );
         }
     }
@@ -364,16 +371,16 @@ public class PortScannerScreen extends Screen {
     }
 
     @Override
-    public void resize(MinecraftClient client, int width, int height) {
-        String tempIp = ipTextField != null ? ipTextField.getText() : "";
-        String tempStart = startPortTextField != null ? startPortTextField.getText() : "";
-        String tempEnd = endPortTextField != null ? endPortTextField.getText() : "";
+    public void resize(int width, int height) {
+        String tempIp = ipTextField != null ? ipTextField.getValue() : "";
+        String tempStart = startPortTextField != null ? startPortTextField.getValue() : "";
+        String tempEnd = endPortTextField != null ? endPortTextField.getValue() : "";
 
-        this.init(client, width, height);
+        super.resize(width, height);
 
-        ipTextField.setText(tempIp);
-        startPortTextField.setText(tempStart);
-        endPortTextField.setText(tempEnd);
+        ipTextField.setValue(tempIp);
+        startPortTextField.setValue(tempStart);
+        endPortTextField.setValue(tempEnd);
 
         updateServerButtons();
     }

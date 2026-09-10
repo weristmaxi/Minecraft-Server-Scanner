@@ -1,16 +1,16 @@
 package dev.jqve.serverscanner.screens;
 
 import dev.jqve.serverscanner.mixin.MultiplayerScreenInvoker;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.gui.screen.multiplayer.MultiplayerScreen;
-import net.minecraft.client.gui.tooltip.Tooltip;
-import net.minecraft.client.gui.widget.ButtonWidget;
-import net.minecraft.client.gui.widget.TextFieldWidget;
-import net.minecraft.client.network.ServerInfo;
-import net.minecraft.client.option.ServerList;
-import net.minecraft.text.Text;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.gui.screens.multiplayer.JoinMultiplayerScreen;
+import net.minecraft.client.gui.components.Tooltip;
+import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.multiplayer.ServerData;
+import net.minecraft.client.multiplayer.ServerList;
+import net.minecraft.network.chat.Component;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -45,13 +45,13 @@ public class ServerScannerScreen extends Screen {
     );
 
     private final Screen parent;
-    private final Set<ServerInfo> foundServers = Collections.synchronizedSet(new LinkedHashSet<>());
+    private final Set<ServerData> foundServers = Collections.synchronizedSet(new LinkedHashSet<>());
     private final Queue<Runnable> uiUpdateQueue = new ConcurrentLinkedQueue<>();
-    private final List<ButtonWidget> serverButtons = new ArrayList<>();
+    private final List<Button> serverButtons = new ArrayList<>();
 
-    private TextFieldWidget ipTextField;
-    private ButtonWidget scanButton;
-    private Text statusText;
+    private EditBox ipTextField;
+    private Button scanButton;
+    private Component statusText;
     private ExecutorService executorService;
     private ScheduledExecutorService uiUpdateExecutor;
     private volatile boolean isScanning;
@@ -70,8 +70,13 @@ public class ServerScannerScreen extends Screen {
     private final int scrollSpeed = 10; // Adjust scroll speed as needed
 
     public ServerScannerScreen(Screen parent) {
-        super(Text.literal("Minecraft Server Scanner"));
+        super(Component.literal("Minecraft Server Scanner"));
         this.parent = parent;
+    }
+
+    @Override
+    public void onClose() {
+        ((MultiplayerScreenInvoker) parent).invokeRefreshServerList();
     }
 
     @Override
@@ -103,22 +108,22 @@ public class ServerScannerScreen extends Screen {
 
     private void saveCurrentState() {
         if (this.ipTextField != null) {
-            savedIpText = this.ipTextField.getText();
+            savedIpText = this.ipTextField.getValue();
         }
     }
 
     private void initializeTextFields() {
-        this.ipTextField = new TextFieldWidget(
-                this.textRenderer,
+        this.ipTextField = new EditBox(
+                this.font,
                 this.width / 2 - TEXT_FIELD_WIDTH / 2,
                 20,
                 TEXT_FIELD_WIDTH,
                 BUTTON_HEIGHT,
-                Text.literal("IP Address")
+                Component.literal("IP Address")
         );
         this.ipTextField.setMaxLength(15);
-        this.ipTextField.setTooltip(Tooltip.of(Text.literal("Enter IP address (e.g., 192.168.1.1)")));
-        this.addDrawableChild(ipTextField);
+        this.ipTextField.setTooltip(Tooltip.create(Component.literal("Enter IP address (e.g., 192.168.1.1)")));
+        this.addRenderableWidget(ipTextField);
     }
 
     private String getNetworkAddress(String ip) {
@@ -153,34 +158,35 @@ public class ServerScannerScreen extends Screen {
     }
 
     private void clearServerButtons() {
-        for (ButtonWidget button : serverButtons) {
-            this.remove(button);
+        for (Button button : serverButtons) {
+            this.removeWidget(button);
         }
         serverButtons.clear();
     }
 
     private void initializeButtons() {
-        this.scanButton = ButtonWidget.builder(Text.literal("Scan Network"), this::handleScanButton)
+        this.scanButton = Button.builder(Component.literal("Scan Network"), this::handleScanButton)
                 .width(200)
-                .position(this.width / 2 - 100, 50)
+                .pos(this.width / 2 - 100, 50)
                 .build();
 
-        ButtonWidget backButton = ButtonWidget.builder(Text.literal("Back"), button ->
-                        MinecraftClient.getInstance().setScreen(parent))
+        Button backButton = Button.builder(Component.literal("Back"), button ->
+                        onClose())
                 .width(50)
-                .position(5, 5)
+                .pos(5, 5)
                 .build();
 
-        this.addDrawableChild(scanButton);
-        this.addDrawableChild(backButton);
+        this.addRenderableWidget(scanButton);
+        this.addRenderableWidget(backButton);
     }
 
     private void restoreState() {
-        statusText = Text.literal("");
-        this.ipTextField.setText(savedIpText.isEmpty() ? "192.168.1.1" : savedIpText);
+        statusText = Component.literal("");
+        this.ipTextField.setValue(savedIpText.isEmpty() ? "192.168.1.1" : savedIpText);
     }
 
     private void startUiUpdateThread() {
+        if (uiUpdateExecutor != null && !uiUpdateExecutor.isShutdown()) return;
         uiUpdateExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread thread = new Thread(r, "UI-Update-Thread");
             thread.setDaemon(true);
@@ -191,13 +197,13 @@ public class ServerScannerScreen extends Screen {
             while (!uiUpdateQueue.isEmpty()) {
                 Runnable update = uiUpdateQueue.poll();
                 if (update != null) {
-                    MinecraftClient.getInstance().execute(update);
+                    Minecraft.getInstance().execute(update);
                 }
             }
         }, 0, 50, TimeUnit.MILLISECONDS);
     }
 
-    private void handleScanButton(ButtonWidget button) {
+    private void handleScanButton(Button button) {
         if (isScanning) {
             stopScanning();
         } else {
@@ -206,18 +212,19 @@ public class ServerScannerScreen extends Screen {
     }
 
     private void startScanning() {
-        String ip = ipTextField.getText().trim();
+        String ip = ipTextField.getValue().trim();
         if (!validateInput(ip)) {
             return;
         }
 
         String networkIp = getNetworkAddress(ip);
         isScanning = true;
+        scrollOffset = 0;
         foundServers.clear();
         clearServerButtons();
 
         queueUiUpdate(() -> {
-            scanButton.setMessage(Text.literal("Stop Scanning"));
+            scanButton.setMessage(Component.literal("Stop Scanning"));
             updateServerList();
         });
 
@@ -238,8 +245,8 @@ public class ServerScannerScreen extends Screen {
         isScanning = false;
 
         queueUiUpdate(() -> {
-            scanButton.setMessage(Text.literal("Scan Network"));
-            statusText = Text.literal("§cScanning stopped");
+            scanButton.setMessage(Component.literal("Scan Network"));
+            statusText = Component.literal("§cScanning stopped");
         });
     }
 
@@ -255,18 +262,19 @@ public class ServerScannerScreen extends Screen {
         AtomicInteger processedIps = new AtomicInteger(0);
         int totalIps = SCAN_RANGE_END - SCAN_RANGE_START + 1;
 
-        CompletableFuture<Void> scanTask = CompletableFuture.runAsync(() -> {
+        CompletableFuture<Void> scanTask = CompletableFuture.supplyAsync(() -> {
+            List<CompletableFuture<Void>> probes = new ArrayList<>();
             for (int i = SCAN_RANGE_START; i <= SCAN_RANGE_END && isScanning; i++) {
                 final String ip = baseIp + i;
                 final int currentNumber = i;
 
-                CompletableFuture.runAsync(() -> {
+                probes.add(CompletableFuture.runAsync(() -> {
                     try {
                         if (isPortOpen(ip)) {
-                            ServerInfo server = new ServerInfo(
+                            ServerData server = new ServerData(
                                     "Server #" + currentNumber,
                                     ip + ":" + DEFAULT_MINECRAFT_PORT,
-                                    ServerInfo.ServerType.LAN
+                                    ServerData.Type.LAN
                             );
                             foundServers.add(server);
                             LOGGER.info("Found server at {}", ip);
@@ -276,9 +284,10 @@ public class ServerScannerScreen extends Screen {
                         int processed = processedIps.incrementAndGet();
                         updateProgress(processed, totalIps);
                     }
-                }, executorService);
+                }, executorService));
             }
-        }, executorService);
+            return CompletableFuture.allOf(probes.toArray(CompletableFuture[]::new));
+        }, executorService).thenCompose(probes -> probes);
 
         scanTask.whenComplete((result, exception) -> {
             if (exception != null) {
@@ -308,8 +317,8 @@ public class ServerScannerScreen extends Screen {
 
         queueUiUpdate(() -> {
             isScanning = false;
-            scanButton.setMessage(Text.literal("Scan Network"));
-            statusText = Text.literal("§aScanning completed! Found " + foundServers.size() + " servers");
+            scanButton.setMessage(Component.literal("Scan Network"));
+            statusText = Component.literal("§aScanning completed! Found " + foundServers.size() + " servers");
             updateServerList();
         });
     }
@@ -320,16 +329,21 @@ public class ServerScannerScreen extends Screen {
      */
     private void updateServerList() {
         clearServerButtons();
-        if (foundServers.isEmpty()) return;
+        List<ServerData> servers;
+        synchronized (foundServers) {
+            servers = new ArrayList<>(foundServers);
+        }
 
         // Calculate total rows needed for all servers
-        int serverCount = foundServers.size();
+        int serverCount = servers.size();
         totalRows = (int) Math.ceil((double) serverCount / buttonsPerRow);
+        int maxScroll = Math.max(0, (totalRows - MAX_VISIBLE_ROWS) * (BUTTON_HEIGHT + BUTTON_SPACING));
+        scrollOffset = Math.min(scrollOffset, maxScroll);
 
         // The actual loop to create buttons
         int idx = 0;
         int buttonYStart = RESULTS_START_Y - scrollOffset; // offset by scroll
-        for (ServerInfo server : foundServers) {
+        for (ServerData server : servers) {
             // compute row, col
             int row = idx / buttonsPerRow;
             int col = idx % buttonsPerRow;
@@ -337,32 +351,40 @@ public class ServerScannerScreen extends Screen {
             int buttonY = buttonYStart + row * (BUTTON_HEIGHT + BUTTON_SPACING);
             int buttonX = 20 + col * (dynamicButtonWidth + BUTTON_SPACING);
 
-            ButtonWidget button = ButtonWidget.builder(Text.literal(server.name), (btn) -> addServerToList(server))
+            // Only create fully visible buttons, so off-screen results cannot
+            // cover or intercept input intended for the status and scan controls.
+            int resultsBottom = RESULTS_START_Y + MAX_VISIBLE_ROWS * (BUTTON_HEIGHT + BUTTON_SPACING);
+            if (buttonY < RESULTS_START_Y || buttonY + BUTTON_HEIGHT > resultsBottom) {
+                idx++;
+                continue;
+            }
+
+            Button button = Button.builder(Component.literal(server.name), (btn) -> addServerToList(server))
                     .width(dynamicButtonWidth)
-                    .position(buttonX, buttonY)
+                    .pos(buttonX, buttonY)
                     .build();
 
             this.serverButtons.add(button);
-            this.addDrawableChild(button);
+            this.addRenderableWidget(button);
 
             idx++;
         }
     }
 
-    private void addServerToList(ServerInfo server) {
-        MinecraftClient client = MinecraftClient.getInstance();
-        MultiplayerScreen multiplayerScreen = new MultiplayerScreen(this);
-        multiplayerScreen.init(client, this.width, this.height);
+    private void addServerToList(ServerData server) {
+        Minecraft client = Minecraft.getInstance();
+        JoinMultiplayerScreen multiplayerScreen = new JoinMultiplayerScreen(this);
+        multiplayerScreen.init(this.width, this.height);
 
         ServerList serverList = new ServerList(client);
-        serverList.loadFile();
+        serverList.load();
 
         MultiplayerScreenInvoker invoker = (MultiplayerScreenInvoker) multiplayerScreen;
         invoker.setServerList(serverList);
         invoker.setSelectedEntry(server);
         invoker.invokeAddEntry(true);
 
-        client.setScreen(this);
+        client.setScreenAndShow(this);
         foundServers.remove(server);
         updateServerList();
     }
@@ -372,14 +394,15 @@ public class ServerScannerScreen extends Screen {
     }
 
     private void setStatusText(String message) {
-        queueUiUpdate(() -> statusText = Text.literal(message));
+        queueUiUpdate(() -> statusText = Component.literal(message));
     }
 
     /**
      * We override mouseScrolled to allow vertical scrolling if total rows exceed MAX_VISIBLE_ROWS.
      */
 
-    public boolean mouseScrolled(double mouseX, double mouseY, double amount) {
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
         // If totalRows > MAX_VISIBLE_ROWS, enable scrolling
         int maxRowsVisible = MAX_VISIBLE_ROWS;
         if (totalRows > maxRowsVisible) {
@@ -389,38 +412,39 @@ public class ServerScannerScreen extends Screen {
             int maxScroll = Math.max(0, totalHeight - maxVisibleHeight);
 
             // Adjust scroll based on mouse wheel
-            scrollOffset -= amount * scrollSpeed;
+            scrollOffset -= (int) (verticalAmount * scrollSpeed);
             if (scrollOffset < 0) scrollOffset = 0;
             if (scrollOffset > maxScroll) scrollOffset = maxScroll;
 
             // Re-draw the server buttons with new offset
             updateServerList();
+            return true;
         }
-        return super.mouseScrolled(mouseX, mouseY, amount, amount);
+        return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
     }
 
     @Override
-    public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-        this.renderBackground(context, mouseX, mouseY, delta);
-        super.render(context, mouseX, mouseY, delta);
+    public void extractRenderState(GuiGraphicsExtractor context, int mouseX, int mouseY, float delta) {
+
+        super.extractRenderState(context, mouseX, mouseY, delta);
 
         // Draw title
-        context.drawTextWithShadow(
-                this.textRenderer,
+        context.text(
+                this.font,
                 this.title,
-                this.width / 2 - this.textRenderer.getWidth(this.title) / 2,
+                this.width / 2 - this.font.width(this.title) / 2,
                 5,
-                0xFFFFFF
+                0xFFFFFFFF
         );
 
         // Draw status text
         if (statusText != null) {
-            context.drawTextWithShadow(
-                    this.textRenderer,
+            context.text(
+                    this.font,
                     statusText,
-                    this.width / 2 - this.textRenderer.getWidth(statusText) / 2,
+                    this.width / 2 - this.font.width(statusText) / 2,
                     80,
-                    0xFFFFFF
+                    0xFFFFFFFF
             );
         }
     }
@@ -436,10 +460,10 @@ public class ServerScannerScreen extends Screen {
     }
 
     @Override
-    public void resize(MinecraftClient client, int width, int height) {
-        String text = this.ipTextField != null ? this.ipTextField.getText() : "";
-        this.init(client, width, height);
-        this.ipTextField.setText(text);
+    public void resize(int width, int height) {
+        String text = this.ipTextField != null ? this.ipTextField.getValue() : "";
+        super.resize(width, height);
+        this.ipTextField.setValue(text);
         updateServerList(); // Recalculate button layout after resize
     }
 }
