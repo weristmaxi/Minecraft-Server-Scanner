@@ -1,11 +1,11 @@
 package dev.jqve.serverscanner;
 
-import net.fabricmc.api.ModInitializer;
+import net.fabricmc.api.ClientModInitializer;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class ServerScanner implements ModInitializer {
+public class ServerScanner implements ClientModInitializer {
 	public static final String MOD_ID = "server-scanner";
 
 	// This logger is used to write text to the console and the log file.
@@ -14,7 +14,7 @@ public class ServerScanner implements ModInitializer {
 	public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 
 	@Override
-	public void onInitialize() {
+	public void onInitializeClient() {
 
 	}
 }
