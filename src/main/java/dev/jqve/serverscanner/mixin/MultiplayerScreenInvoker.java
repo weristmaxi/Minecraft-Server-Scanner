@@ -10,6 +10,9 @@ import org.spongepowered.asm.mixin.gen.Invoker;
 @Mixin(JoinMultiplayerScreen.class)
 public interface MultiplayerScreenInvoker {
 
+    @Invoker("refreshServerList")
+    void invokeRefreshServerList();
+
     @Accessor("servers")
     void setServerList(ServerList serverList);
 

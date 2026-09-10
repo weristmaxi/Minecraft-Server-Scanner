@@ -75,6 +75,11 @@ public class ServerScannerScreen extends Screen {
     }
 
     @Override
+    public void onClose() {
+        ((MultiplayerScreenInvoker) parent).invokeRefreshServerList();
+    }
+
+    @Override
     protected void init() {
         saveCurrentState();
         calculateLayoutMetrics();
@@ -166,7 +171,7 @@ public class ServerScannerScreen extends Screen {
                 .build();
 
         Button backButton = Button.builder(Component.literal("Back"), button ->
-                        Minecraft.getInstance().setScreenAndShow(parent))
+                        onClose())
                 .width(50)
                 .pos(5, 5)
                 .build();
@@ -214,6 +219,7 @@ public class ServerScannerScreen extends Screen {
 
         String networkIp = getNetworkAddress(ip);
         isScanning = true;
+        scrollOffset = 0;
         foundServers.clear();
         clearServerButtons();
 
@@ -256,12 +262,13 @@ public class ServerScannerScreen extends Screen {
         AtomicInteger processedIps = new AtomicInteger(0);
         int totalIps = SCAN_RANGE_END - SCAN_RANGE_START + 1;
 
-        CompletableFuture<Void> scanTask = CompletableFuture.runAsync(() -> {
+        CompletableFuture<Void> scanTask = CompletableFuture.supplyAsync(() -> {
+            List<CompletableFuture<Void>> probes = new ArrayList<>();
             for (int i = SCAN_RANGE_START; i <= SCAN_RANGE_END && isScanning; i++) {
                 final String ip = baseIp + i;
                 final int currentNumber = i;
 
-                CompletableFuture.runAsync(() -> {
+                probes.add(CompletableFuture.runAsync(() -> {
                     try {
                         if (isPortOpen(ip)) {
                             ServerData server = new ServerData(
@@ -277,9 +284,10 @@ public class ServerScannerScreen extends Screen {
                         int processed = processedIps.incrementAndGet();
                         updateProgress(processed, totalIps);
                     }
-                }, executorService);
+                }, executorService));
             }
-        }, executorService);
+            return CompletableFuture.allOf(probes.toArray(CompletableFuture[]::new));
+        }, executorService).thenCompose(probes -> probes);
 
         scanTask.whenComplete((result, exception) -> {
             if (exception != null) {
@@ -321,22 +329,35 @@ public class ServerScannerScreen extends Screen {
      */
     private void updateServerList() {
         clearServerButtons();
-        if (foundServers.isEmpty()) return;
+        List<ServerData> servers;
+        synchronized (foundServers) {
+            servers = new ArrayList<>(foundServers);
+        }
 
         // Calculate total rows needed for all servers
-        int serverCount = foundServers.size();
+        int serverCount = servers.size();
         totalRows = (int) Math.ceil((double) serverCount / buttonsPerRow);
+        int maxScroll = Math.max(0, (totalRows - MAX_VISIBLE_ROWS) * (BUTTON_HEIGHT + BUTTON_SPACING));
+        scrollOffset = Math.min(scrollOffset, maxScroll);
 
         // The actual loop to create buttons
         int idx = 0;
         int buttonYStart = RESULTS_START_Y - scrollOffset; // offset by scroll
-        for (ServerData server : foundServers) {
+        for (ServerData server : servers) {
             // compute row, col
             int row = idx / buttonsPerRow;
             int col = idx % buttonsPerRow;
             // the Y position is offset by the scrollOffset
             int buttonY = buttonYStart + row * (BUTTON_HEIGHT + BUTTON_SPACING);
             int buttonX = 20 + col * (dynamicButtonWidth + BUTTON_SPACING);
+
+            // Only create fully visible buttons, so off-screen results cannot
+            // cover or intercept input intended for the status and scan controls.
+            int resultsBottom = RESULTS_START_Y + MAX_VISIBLE_ROWS * (BUTTON_HEIGHT + BUTTON_SPACING);
+            if (buttonY < RESULTS_START_Y || buttonY + BUTTON_HEIGHT > resultsBottom) {
+                idx++;
+                continue;
+            }
 
             Button button = Button.builder(Component.literal(server.name), (btn) -> addServerToList(server))
                     .width(dynamicButtonWidth)
@@ -397,6 +418,7 @@ public class ServerScannerScreen extends Screen {
 
             // Re-draw the server buttons with new offset
             updateServerList();
+            return true;
         }
         return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
     }

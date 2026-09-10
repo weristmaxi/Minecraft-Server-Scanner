@@ -22,6 +22,11 @@ public class DeleteRegexScreen extends Screen {
     }
 
     @Override
+    public void onClose() {
+        minecraft.setScreenAndShow(parentScreen);
+    }
+
+    @Override
     protected void init() {
         // Initialize components
         regexTextField = new EditBox(this.font, width/2-100, 60, 200, 20, Component.literal(""));
@@ -59,7 +64,7 @@ public class DeleteRegexScreen extends Screen {
         serverList.save();
         MultiplayerScreenInvoker invoker = (MultiplayerScreenInvoker) parentScreen;
         invoker.setServerList(serverList);
-        client.setScreenAndShow(new JoinMultiplayerScreen(parentScreen));
+        invoker.invokeRefreshServerList();
     }
 
 }

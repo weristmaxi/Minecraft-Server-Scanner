@@ -7,6 +7,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.multiplayer.JoinMultiplayerScreen;
 import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.layouts.HeaderAndFooterLayout;
 import net.minecraft.client.multiplayer.ServerList;
 import net.minecraft.network.chat.Component;
 import org.spongepowered.asm.mixin.Mixin;
@@ -21,6 +22,8 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public class MultiplayerScreenMixin extends Screen {
     @Shadow @Final
     private Screen lastScreen;
+    @Shadow @Final
+    private HeaderAndFooterLayout layout;
     @Unique
     private Button serverScanner;
     @Unique
@@ -38,6 +41,11 @@ public class MultiplayerScreenMixin extends Screen {
 
     private MultiplayerScreenMixin(Component title) {
         super(title);
+    }
+
+    @Inject(at = @At("HEAD"), method = "init")
+    private void reserveScannerToolbar(CallbackInfo ci) {
+        layout.setFooterHeight(96);
     }
 
     @Inject(at = @At("TAIL"), method = "init")
@@ -75,6 +83,7 @@ public class MultiplayerScreenMixin extends Screen {
             this.addRenderableWidget(deleteAllServersButton);
             this.addRenderableWidget(deleteViaRegex);
         }
+        positionScannerToolbar();
     }
 
     private Button createServerScannerButton() {
@@ -85,7 +94,7 @@ public class MultiplayerScreenMixin extends Screen {
 
     private Button createPortScannerButton() {
         return Button.builder(Component.literal("Port Scanner"), button ->
-                Minecraft.getInstance().setScreenAndShow(new PortScannerScreen())
+                Minecraft.getInstance().setScreenAndShow(new PortScannerScreen(this))
         ).width(100).pos(10, this.height - 29).build();
     }
 
@@ -123,10 +132,17 @@ public class MultiplayerScreenMixin extends Screen {
     @Inject(at = @At("TAIL"), method = "repositionElements")
     private void repositionScannerButtons(CallbackInfo ci) {
         if (serverScanner == null) return;
-        serverScanner.setY(this.height - 54);
-        portScanner.setY(this.height - 29);
-        deleteAllServersButton.setY(this.height - 54);
-        deleteViaRegex.setY(this.height - 29);
-        toggleButtonSets.setY(this.height - 29);
+        positionScannerToolbar();
+    }
+
+    @Unique
+    private void positionScannerToolbar() {
+        int left = (this.width - 233) / 2;
+        int y = this.height - 24;
+        serverScanner.setPosition(left, y);
+        deleteAllServersButton.setPosition(left, y);
+        portScanner.setPosition(left + 104, y);
+        deleteViaRegex.setPosition(left + 104, y);
+        toggleButtonSets.setPosition(left + 208, y);
     }
 }

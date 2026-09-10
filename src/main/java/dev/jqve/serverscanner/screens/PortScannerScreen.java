@@ -24,6 +24,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 
 public class PortScannerScreen extends Screen {
+    private final Screen parent;
     private static final Logger LOGGER = LogManager.getLogger(PortScannerScreen.class);
 
     // Port scanning settings
@@ -57,8 +58,14 @@ public class PortScannerScreen extends Screen {
     private int buttonsPerRow;
     private int dynamicButtonWidth;
 
-    public PortScannerScreen() {
+    public PortScannerScreen(Screen parent) {
         super(Component.literal("Minecraft Server Scanner"));
+        this.parent = parent;
+    }
+
+    @Override
+    public void onClose() {
+        ((MultiplayerScreenInvoker) parent).invokeRefreshServerList();
     }
 
     @Override
